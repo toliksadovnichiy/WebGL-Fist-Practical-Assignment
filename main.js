@@ -59,7 +59,7 @@ function ShaderProgram(name, program) {
  * way to draw with WebGL.  Here, the geometry is so simple that it doesn't matter.)
  */
 function draw() { 
-    gl.clearColor(0,0,0,1);
+    gl.clearColor(1,1,1,1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     
     /* Set the values of the projection transformation */
@@ -81,7 +81,7 @@ function draw() {
     gl.uniformMatrix4fv(shProgram.iModelViewProjectionMatrix, false, modelViewProjection );
     
     /* Draw the six faces of a cube, with different colors. */
-    gl.uniform4fv(shProgram.iColor, [1,1,0,1] );
+    gl.uniform4fv(shProgram.iColor, [0,0,0,1] );
 
     surface.Draw();
 }
@@ -89,12 +89,29 @@ function draw() {
 function CreateSurfaceData()
 {
     let vertexList = [];
+    const n = 500;
 
-    for (let i=0; i<360; i+=5) {
-        vertexList.push( Math.sin(deg2rad(i)), 1, Math.cos(deg2rad(i)) );
-        vertexList.push( Math.sin(deg2rad(i)), 0, Math.cos(deg2rad(i)) );
+    //Proportionally changes the size of the figure along three axes
+    const sizeIndex = 0.04;
+
+    for(let i = 0; i <= n; i++) {
+        let u1 = i / n;
+
+        for(let j = 0; j <= n; j++) {
+            let v1 = j / n;
+
+            let u = u1 * Math.PI * 14.5;
+            let v = v1 * Math.PI * 1.5;
+
+            let x = u * Math.cos(Math.cos(u)) * Math.cos(v) * sizeIndex;
+            let y = u * Math.cos(Math.cos(u)) * Math.sin(v) * sizeIndex;
+            let z = u * Math.sin(Math.cos(u)) * sizeIndex;
+
+            vertexList.push(x);
+            vertexList.push(y);
+            vertexList.push(z);
+        }
     }
-
     return vertexList;
 }
 
