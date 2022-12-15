@@ -30,7 +30,7 @@ function Model(name) {
         gl.vertexAttribPointer(shProgram.iAttribVertex, 3, gl.FLOAT, false, 0, 0);
         gl.enableVertexAttribArray(shProgram.iAttribVertex);
    
-        gl.drawArrays(gl.LINE_STRIP, 0, this.count);
+        gl.drawArrays(gl.LINE_LOOP, 0, this.count);
     }
 }
 
@@ -112,7 +112,7 @@ function CreateSurfaceData()
     const n = 500;
 
     //Proportionally changes the size of the figure along three axes
-    const sizeIndex = 0.04;
+    const sizeIndex = 0.17;
 
     for(let i = 0; i <= n; i++) {
         let u1 = i / n;
