@@ -86,6 +86,26 @@ function draw() {
     surface.Draw();
 }
 
+function calculateULimit(u){
+    return u * Math.PI * 14.5;
+}
+
+function calculateVLimit(v){
+    return v * Math.PI * 1.5;
+}
+
+function calculateXCoordinate(u, v) {
+    return u * Math.cos(Math.cos(u)) * Math.cos(v);
+}
+
+function calculateYCoordinate(u, v) {
+    return u * Math.cos(Math.cos(u)) * Math.sin(v);
+}
+
+function calculateZCoordinate(u, v) {
+    return u * Math.sin(Math.cos(u))
+}
+
 function CreateSurfaceData()
 {
     let vertexList = [];
@@ -100,12 +120,12 @@ function CreateSurfaceData()
         for(let j = 0; j <= n; j++) {
             let v1 = j / n;
 
-            let u = u1 * Math.PI * 14.5;
-            let v = v1 * Math.PI * 1.5;
+            let u = calculateULimit(u1);
+            let v = calculateVLimit(v1);
 
-            let x = u * Math.cos(Math.cos(u)) * Math.cos(v) * sizeIndex;
-            let y = u * Math.cos(Math.cos(u)) * Math.sin(v) * sizeIndex;
-            let z = u * Math.sin(Math.cos(u)) * sizeIndex;
+            let x = calculateXCoordinate(u, v) * sizeIndex;
+            let y = calculateYCoordinate(u, v) * sizeIndex;
+            let z = calculateZCoordinate(u, v) * sizeIndex;
 
             vertexList.push(x);
             vertexList.push(y);
