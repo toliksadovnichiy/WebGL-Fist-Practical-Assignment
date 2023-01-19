@@ -5,6 +5,14 @@ let surface;                    // A surface model
 let shProgram;                  // A shader program
 let spaceball;                  // A SimpleRotator object that lets the user rotate the view by mouse.
 
+let inputValue = 0.0;
+
+
+const uDel = 0.001;
+const vDel = 0.001;
+const r = parseFloat(1.0);
+const a = parseFloat(0.5);
+
 function deg2rad(angle) {
     return angle * Math.PI / 180;
 }
@@ -14,12 +22,16 @@ function deg2rad(angle) {
 function Model(name) {
     this.name = name;
     this.iVertexBuffer = gl.createBuffer();
+    this.iNormalBuffer = gl.createBuffer();
     this.count = 0;
 
-    this.BufferData = function(vertices) {
+    this.BufferData = function(vertices, normals) {
 
         gl.bindBuffer(gl.ARRAY_BUFFER, this.iVertexBuffer);
         gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STREAM_DRAW);
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.iNormalBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(normals), gl.STREAM_DRAW);
 
         this.count = vertices.length/3;
     }
@@ -29,8 +41,12 @@ function Model(name) {
         gl.bindBuffer(gl.ARRAY_BUFFER, this.iVertexBuffer);
         gl.vertexAttribPointer(shProgram.iAttribVertex, 3, gl.FLOAT, false, 0, 0);
         gl.enableVertexAttribArray(shProgram.iAttribVertex);
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.iNormalBuffer);
+        gl.vertexAttribPointer(shProgram.iNormalVertex, 3, gl.FLOAT, true, 0, 0);
+        gl.enableVertexAttribArray(shProgram.iNormalVertex);
    
-        gl.drawArrays(gl.LINE_LOOP, 0, this.count);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, this.count);
     }
 }
 
@@ -48,6 +64,16 @@ function ShaderProgram(name, program) {
     // Location of the uniform matrix representing the combined transformation.
     this.iModelViewProjectionMatrix = -1;
 
+    this.iNormalVertex = -1;
+
+    this.iWorldMatrix = -1;
+    this.iWorldInverseTranspose = -1;
+
+    this.iLightWorldPosition = -1;
+    this.iLightDirection = -1;
+
+    this.iViewWorldPosition = -1;
+
     this.Use = function() {
         gl.useProgram(this.prog);
     }
@@ -59,7 +85,7 @@ function ShaderProgram(name, program) {
  * way to draw with WebGL.  Here, the geometry is so simple that it doesn't matter.)
  */
 function draw() { 
-    gl.clearColor(1,1,1,1);
+    gl.clearColor(0,0,0.4,0.4);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     
     /* Set the values of the projection transformation */
@@ -71,20 +97,64 @@ function draw() {
     let rotateToPointZero = m4.axisRotation([0.707,0.707,0], 0.7);
     let translateToPointZero = m4.translation(0,0,-10);
 
-    let matAccum0 = m4.multiply(rotateToPointZero, modelView );
-    let matAccum1 = m4.multiply(translateToPointZero, matAccum0 );
+    //let matAccum0 = m4.multiply(rotateToPointZero, modelView );
+    let matAccum1 = m4.multiply(translateToPointZero, modelView);
         
     /* Multiply the projection matrix times the modelview matrix to give the
        combined transformation matrix, and send that to the shader program. */
     let modelViewProjection = m4.multiply(projection, matAccum1 );
 
+    var worldInverseMatrix = m4.inverse(matAccum1);
+    var worldInverseTransposeMatrix = m4.transpose(worldInverseMatrix);
+
     gl.uniformMatrix4fv(shProgram.iModelViewProjectionMatrix, false, modelViewProjection );
-    
+
+    gl.uniform3fv(shProgram.iLightWorldPosition, LineSig());
+    gl.uniform3fv(shProgram.iLightDirection, [0, -1, 0]);
+
+    gl.uniform3fv(shProgram.iViewWorldPosition, [0, 0, 0]);
+
+    gl.uniformMatrix4fv(shProgram.iWorldInverseTranspose, false, worldInverseTransposeMatrix);
+    gl.uniformMatrix4fv(shProgram.iModelViewProjectionMatrix, false,modelViewProjection);
+    gl.uniformMatrix4fv(shProgram.iWorldMatrix, false, matAccum1);
+
     /* Draw the six faces of a cube, with different colors. */
-    gl.uniform4fv(shProgram.iColor, [0,0,0,1] );
+    gl.uniform4fv(shProgram.iColor, [1, 1, 1, 1]);
 
     surface.Draw();
 }
+
+function derUFunc(u, v, uDelta) {
+    let x = calculateXCoordinate(u, v);
+    let y = calculateYCoordinate(u, v);
+    let z = calculateZCoordinate(u, v);
+  
+    let Dx = calculateXCoordinate(u + uDelta, v);
+    let Dy = calculateYCoordinate(u + uDelta, v);
+    let Dz = calculateZCoordinate(u + uDelta, v);
+  
+    let Dxdu = (Dx - x) / deg2rad(uDelta);
+    let Dydu = (Dy - y) / deg2rad(uDelta);
+    let Dzdu = (Dz - z) / deg2rad(uDelta);
+  
+    return [Dxdu, Dydu, Dzdu];
+  }
+  
+  function derVFunc(u, v, vDelta) {
+    let x = calculateXCoordinate(u, v);
+    let y = calculateYCoordinate(u, v);
+    let z = calculateZCoordinate(u, v);
+  
+    let Dx = calculateXCoordinate(u, v + vDelta);
+    let Dy = calculateYCoordinate(u, v + vDelta);
+    let Dz = calculateZCoordinate(u, v + vDelta);
+  
+    let Dxdv = (Dx - x) / deg2rad(vDelta);
+    let Dydv = (Dy - y) / deg2rad(vDelta);
+    let Dzdv = (Dz - z) / deg2rad(vDelta);
+  
+    return [Dxdv, Dydv, Dzdv];
+  }
 
 function calculateULimit(u){
     return u * Math.PI * 14.5;
@@ -108,11 +178,13 @@ function calculateZCoordinate(u, v) {
 
 function CreateSurfaceData()
 {
-    let vertexList = [];
-    const n = 500;
+
+    let vertices = [];
+    let normals = [];
+    const n = 600;
 
     //Proportionally changes the size of the figure along three axes
-    const sizeIndex = 0.17;
+    const sizeIndex = 0.04;
 
     for(let i = 0; i <= n; i++) {
         let u1 = i / n;
@@ -127,12 +199,32 @@ function CreateSurfaceData()
             let y = calculateYCoordinate(u, v) * sizeIndex;
             let z = calculateZCoordinate(u, v) * sizeIndex;
 
-            vertexList.push(x);
-            vertexList.push(y);
-            vertexList.push(z);
+            vertices.push(x, y, z);
+
+            x = calculateXCoordinate(u, v+1) * sizeIndex;
+            y = calculateYCoordinate(u, v+1) * sizeIndex;
+            z = calculateZCoordinate(u, v+1) * sizeIndex;
+
+            vertices.push(x, y, z);
+
+            let derU = derUFunc(u, v, uDel);
+            let derV = derVFunc(u, v, vDel);
+
+            let result = m4.cross(derV, derU);
+            normals.push(result[0]);
+            normals.push(result[1]);
+            normals.push(result[2]);
+
+            derU = derUFunc(u + 1, v, uDel);
+            derV = derVFunc(u + 1, v, vDel);
+
+            result = m4.cross(derV, derU);
+            normals.push(result[0]);
+            normals.push(result[1]);
+            normals.push(result[2]);
         }
     }
-    return vertexList;
+    return [vertices, normals];
 }
 
 
@@ -144,11 +236,19 @@ function initGL() {
     shProgram.Use();
 
     shProgram.iAttribVertex              = gl.getAttribLocation(prog, "vertex");
+    shProgram.iNormalVertex = gl.getAttribLocation(prog, "normal");
+
     shProgram.iModelViewProjectionMatrix = gl.getUniformLocation(prog, "ModelViewProjectionMatrix");
     shProgram.iColor                     = gl.getUniformLocation(prog, "color");
 
+    shProgram.iWorldInverseTranspose = gl.getUniformLocation(prog, "WorldInverseTranspose");
+    shProgram.iWorldMatrix = gl.getUniformLocation(prog, "WorldMatrix");
+    shProgram.iLightWorldPosition = gl.getUniformLocation(prog, "LightWorldPosition");
+    shProgram.iLightDirection = gl.getUniformLocation(prog, "LightLocation");
+    shProgram.iViewWorldPosition = gl.getUniformLocation(prog, "ViewWorldPosition");
+
     surface = new Model('Surface');
-    surface.BufferData(CreateSurfaceData());
+    surface.BufferData(CreateSurfaceData()[0], CreateSurfaceData()[1]);
 
     gl.enable(gl.DEPTH_TEST);
 }
@@ -216,3 +316,22 @@ function init() {
 
     draw();
 }
+
+window.addEventListener("keydown", function (event) {
+    switch (event.key) {
+      case "ArrowLeft":
+          inputValue -= 1;
+          draw();
+        break;
+      case "ArrowRight":
+          inputValue += 1;
+          draw();
+        break;
+      default:
+        return;
+    }
+  });
+  
+  function LineSig() {
+    return [inputValue, 15, -1 * inputValue * 10];
+  }
