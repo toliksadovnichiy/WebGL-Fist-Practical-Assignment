@@ -1,21 +1,27 @@
-'use strict';
+"use strict";
 
-let gl;                         // The webgl context.
-let surface;                    // A surface model
-let shProgram;                  // A shader program
-let spaceball;                  // A SimpleRotator object that lets the user rotate the view by mouse.
+let gl; // The webgl context.
+let surface; // A surface model
+let shProgram; // A shader program
+let spaceball; // A SimpleRotator object that lets the user rotate the view by mouse.
 
 let inputValue = 0.0;
 
+let scaleU = 0.0;
+let scaleV = 0.0;
+let scaleValue = 1;
+
+const r = parseFloat(1.0);
+const a = parseFloat(0.5);
+const n = parseInt(300);
 
 const uDel = 0.001;
 const vDel = 0.001;
-const r = parseFloat(1.0);
-const a = parseFloat(0.5);
 
 function deg2rad(angle) {
-    return angle * Math.PI / 180;
+  return (angle * Math.PI) / 180;
 }
+
 
 
 // Constructor
@@ -23,9 +29,11 @@ function Model(name) {
     this.name = name;
     this.iVertexBuffer = gl.createBuffer();
     this.iNormalBuffer = gl.createBuffer();
+    this.iTextureBuffer = gl.createBuffer();
+    this.iPointVertexBuffer = gl.createBuffer();
     this.count = 0;
 
-    this.BufferData = function(vertices, normals) {
+    this.BufferData = function(vertices, normals, texCoords) {
 
         gl.bindBuffer(gl.ARRAY_BUFFER, this.iVertexBuffer);
         gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STREAM_DRAW);
@@ -33,10 +41,17 @@ function Model(name) {
         gl.bindBuffer(gl.ARRAY_BUFFER, this.iNormalBuffer);
         gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(normals), gl.STREAM_DRAW);
 
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.iTextureBuffer)
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(texCoords), gl.STREAM_DRAW);
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.iPointVertexBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(texCoords), gl.STATIC_DRAW);    
+
         this.count = vertices.length/3;
     }
 
     this.Draw = function() {
+        gl.uniform1i(shProgram.iDrawPoint, false);
 
         gl.bindBuffer(gl.ARRAY_BUFFER, this.iVertexBuffer);
         gl.vertexAttribPointer(shProgram.iAttribVertex, 3, gl.FLOAT, false, 0, 0);
@@ -46,10 +61,19 @@ function Model(name) {
         gl.vertexAttribPointer(shProgram.iNormalVertex, 3, gl.FLOAT, true, 0, 0);
         gl.enableVertexAttribArray(shProgram.iNormalVertex);
    
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.iTextureBuffer);
+        gl.vertexAttribPointer(shProgram.iTextureCoords, 2, gl.FLOAT, false, 0, 0);
+        gl.enableVertexAttribArray(shProgram.iTextureCoords);
+    
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, this.count);
+    
+        gl.uniform1i(shProgram.iDrawPoint, true);
+    
+        gl.uniform3fv(shProgram.iScalePointWorldLocation, [calculateXCoordinate(scaleU, scaleV), calculateYCoordinate(scaleU, scaleV), calculateZCoordinate(scaleU, scaleV)]);
+
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, this.count);
     }
 }
-
 
 // Constructor
 function ShaderProgram(name, program) {
@@ -59,12 +83,13 @@ function ShaderProgram(name, program) {
 
     // Location of the attribute variable in the shader program.
     this.iAttribVertex = -1;
+    this.iNormalVertex = -1;
+    this.iTextureCoords = -1;
+
     // Location of the uniform specifying a color for the primitive.
     this.iColor = -1;
     // Location of the uniform matrix representing the combined transformation.
     this.iModelViewProjectionMatrix = -1;
-
-    this.iNormalVertex = -1;
 
     this.iWorldMatrix = -1;
     this.iWorldInverseTranspose = -1;
@@ -73,6 +98,15 @@ function ShaderProgram(name, program) {
     this.iLightDirection = -1;
 
     this.iViewWorldPosition = -1;
+
+    this.iTexture = -1;
+
+    this.iScalePointLocation = -1;
+    this.iScaleValue = -1;
+
+    this.iDrawPoint = -1;
+
+    this.iScalePointWorldLocation = -1;
 
     this.Use = function() {
         gl.useProgram(this.prog);
@@ -88,16 +122,19 @@ function draw() {
     gl.clearColor(0,0,0.4,0.4);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     
+    gl.enable(gl.CULL_FACE);
+
+    // Enable the depth buffer
+    gl.enable(gl.DEPTH_TEST);
+
     /* Set the values of the projection transformation */
     let projection = m4.perspective(Math.PI/8, 1, 8, 12); 
     
     /* Get the view matrix from the SimpleRotator object.*/
     let modelView = spaceball.getViewMatrix();
 
-    let rotateToPointZero = m4.axisRotation([0.707,0.707,0], 0.7);
     let translateToPointZero = m4.translation(0,0,-10);
 
-    //let matAccum0 = m4.multiply(rotateToPointZero, modelView );
     let matAccum1 = m4.multiply(translateToPointZero, modelView);
         
     /* Multiply the projection matrix times the modelview matrix to give the
@@ -121,9 +158,15 @@ function draw() {
     /* Draw the six faces of a cube, with different colors. */
     gl.uniform4fv(shProgram.iColor, [1, 1, 1, 1]);
 
+    gl.uniform2fv(shProgram.iScalePointLocation, [scaleU / 360.0, scaleV / 90.0] );
+    gl.uniform1f(shProgram.iScaleValue, scaleValue);
+
+    gl.uniform1i(shProgram.iTexture, 0);
+
     surface.Draw();
 }
 
+//Creating data as vertices for surface
 function derUFunc(u, v, uDelta) {
     let x = calculateXCoordinate(u, v);
     let y = calculateYCoordinate(u, v);
@@ -181,7 +224,8 @@ function CreateSurfaceData()
 
     let vertices = [];
     let normals = [];
-    const n = 600;
+    let textCoords = [];
+    const n = 300;
 
     //Proportionally changes the size of the figure along three axes
     const sizeIndex = 0.04;
@@ -222,11 +266,13 @@ function CreateSurfaceData()
             normals.push(result[0]);
             normals.push(result[1]);
             normals.push(result[2]);
+
+            textCoords.push(j / n, v1);
+            textCoords.push( j + 1 / n, v1);
         }
     }
-    return [vertices, normals];
+    return [vertices, normals, textCoords];
 }
-
 
 /* Initialize the WebGL context. Called from init() */
 function initGL() {
@@ -236,23 +282,32 @@ function initGL() {
     shProgram.Use();
 
     shProgram.iAttribVertex              = gl.getAttribLocation(prog, "vertex");
-    shProgram.iNormalVertex = gl.getAttribLocation(prog, "normal");
+    shProgram.iNormalVertex              = gl.getAttribLocation(prog, "normal");
+    shProgram.iTextureCoords             = gl.getAttribLocation(prog, "texcoord");
 
     shProgram.iModelViewProjectionMatrix = gl.getUniformLocation(prog, "ModelViewProjectionMatrix");
     shProgram.iColor                     = gl.getUniformLocation(prog, "color");
 
-    shProgram.iWorldInverseTranspose = gl.getUniformLocation(prog, "WorldInverseTranspose");
-    shProgram.iWorldMatrix = gl.getUniformLocation(prog, "WorldMatrix");
-    shProgram.iLightWorldPosition = gl.getUniformLocation(prog, "LightWorldPosition");
-    shProgram.iLightDirection = gl.getUniformLocation(prog, "LightLocation");
-    shProgram.iViewWorldPosition = gl.getUniformLocation(prog, "ViewWorldPosition");
+    shProgram.iWorldInverseTranspose     = gl.getUniformLocation(prog, "WorldInverseTranspose");
+    shProgram.iWorldMatrix               = gl.getUniformLocation(prog, "WorldMatrix");
+    shProgram.iLightWorldPosition        = gl.getUniformLocation(prog, "LightWorldPosition");
+    shProgram.iLightDirection            = gl.getUniformLocation(prog, "LightLocation");
+    shProgram.iViewWorldPosition         = gl.getUniformLocation(prog, "ViewWorldPosition");
+
+    shProgram.iTexture                   = gl.getUniformLocation(prog, "u_texture");
+
+    shProgram.iScalePointLocation        = gl.getUniformLocation(prog, "ScalePointLocation");
+    shProgram.iScaleValue                = gl.getUniformLocation(prog, "ScaleValue");
+    
+    shProgram.iDrawPoint                 = gl.getUniformLocation(prog, "bDrawpoint");
+
+    shProgram.iScalePointWorldLocation   = gl.getUniformLocation(prog, "ScalePointWorldLocation");
 
     surface = new Model('Surface');
-    surface.BufferData(CreateSurfaceData()[0], CreateSurfaceData()[1]);
+    surface.BufferData(CreateSurfaceData()[0], CreateSurfaceData()[1], CreateSurfaceData()[2]);
 
     gl.enable(gl.DEPTH_TEST);
 }
-
 
 /* Creates a program for use in the WebGL context gl, and returns the
  * identifier for that program.  If an error occurs while compiling or
@@ -315,23 +370,132 @@ function init() {
     spaceball = new TrackballRotator(canvas, draw, 0);
 
     draw();
+    LoadTexture();
 }
 
-window.addEventListener("keydown", function (event) {
-    switch (event.key) {
-      case "ArrowLeft":
-          inputValue -= 1;
-          draw();
-        break;
-      case "ArrowRight":
-          inputValue += 1;
-          draw();
-        break;
-      default:
-        return;
-    }
-  });
-  
-  function LineSig() {
-    return [inputValue, 15, -1 * inputValue * 10];
+window.addEventListener("keydown", function (event) {  
+  switch (event.key) {
+    case "ArrowLeft":
+      ProcessArrowLeftDown();
+      break;
+    case "ArrowRight":
+      ProcessArrowRightDown();
+      break;
+      case "W":
+          ProcessWDown();
+          break;
+      case "w":
+          ProcessWDown();
+          break;
+      case "S":
+          ProcessSDown();
+          break;
+      case "s":
+          ProcessSDown();
+          break;
+      case "A":
+          ProcessADown();
+          break;
+      case "a":
+          ProcessADown();
+          break;
+      case "D":
+          ProcessDDown();
+          break;
+      case "d":
+          ProcessDDown();
+          break;
+      case "+":
+          ProcessPlusDown();
+          break;
+      case "-":
+          ProcessSubtractDown();
+          break;
+    default:
+          break; 
   }
+
+  draw();
+});
+
+function ProcessArrowLeftDown() {
+  InputCounter -= 0.05;
+}
+
+function ProcessArrowRightDown() {
+  InputCounter += 0.05;
+}
+
+function LoadTexture() {
+    var texture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+ 
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE,
+              new Uint8Array([0, 0, 255, 255]));
+ 
+    var image = new Image();
+    image.crossOrigin = "anonymous"
+    image.src = "https://upload.wikimedia.org/wikipedia/commons/9/92/RGB_24bits_palette_R0.png";
+    image.addEventListener('load', function() {
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA,gl.UNSIGNED_BYTE, image);
+
+        console.log("Texture is loaded!");
+
+        draw();
+    });
+}
+
+function ProcessWDown() {
+    scaleV -= 5.0;
+    scaleV = clamp(scaleV, 0.0, 90);
+}
+
+function ProcessSDown() {
+    scaleV += 5.0;
+    scaleV = clamp(scaleV, 0.0, 90);
+}
+
+function ProcessADown() {
+    scaleU -= 5.0;
+    scaleU = clamp(scaleU, 0.0, 360);
+}
+
+function ProcessDDown() {
+    scaleU += 5.0;
+    scaleU = clamp(scaleU, 0.0, 360);
+}
+
+function ProcessPlusDown() {
+    scaleValue += 0.05;
+    scaleValue = clamp(scaleValue, 0.5, 2.0);
+}
+
+function ProcessSubtractDown() {
+    scaleValue -= 0.05;
+    scaleValue = clamp(scaleValue, 0.5, 2.0);
+}
+
+function clamp(value, min, max) {
+    if(value < min)
+    {
+        value = min
+    }
+    else if(value > max)
+    {
+        value = max;
+    }
+
+    return value;
+}
+
+
+
+function LineSig() {
+  return [inputValue, 20, -1 * inputValue * 10];
+}
