@@ -128,7 +128,7 @@ function draw() {
     gl.enable(gl.DEPTH_TEST);
 
     /* Set the values of the projection transformation */
-    let projection = m4.perspective(Math.PI/8, 1, 8, 12); 
+    let projection = m4.perspective(Math.PI/4, 1, 4, 12); 
     
     /* Get the view matrix from the SimpleRotator object.*/
     let modelView = spaceball.getViewMatrix();
@@ -225,19 +225,21 @@ function CreateSurfaceData()
     let vertices = [];
     let normals = [];
     let textCoords = [];
-    const n = 300;
+    const n = 25;
+    let step = 0.1;
+    let uend = Math.PI * 14.5 + step;
+    let vend = Math.PI * 1.5 + step;
+    let DeltaU = 0.0001;
+    let DeltaV = 0.0001;
 
     //Proportionally changes the size of the figure along three axes
-    const sizeIndex = 0.04;
+    const sizeIndex = 0.05;
 
-    for(let i = 0; i <= n; i++) {
-        let u1 = i / n;
+    for(let u = 0; u < uend; u+=step) {
+        //let u1 = i / n;
+        let unext = u + step;
 
-        for(let j = 0; j <= n; j++) {
-            let v1 = j / n;
-
-            let u = calculateULimit(u1);
-            let v = calculateVLimit(v1);
+        for(let v = 0; v < vend; v+=step) {  
 
             let x = calculateXCoordinate(u, v) * sizeIndex;
             let y = calculateYCoordinate(u, v) * sizeIndex;
@@ -245,30 +247,30 @@ function CreateSurfaceData()
 
             vertices.push(x, y, z);
 
-            x = calculateXCoordinate(u, v+1) * sizeIndex;
-            y = calculateYCoordinate(u, v+1) * sizeIndex;
-            z = calculateZCoordinate(u, v+1) * sizeIndex;
+            x = calculateXCoordinate(unext, v) * sizeIndex;
+            y = calculateYCoordinate(unext, v) * sizeIndex;
+            z = calculateZCoordinate(unext, v) * sizeIndex;
 
             vertices.push(x, y, z);
 
-            let derU = derUFunc(u, v, uDel);
-            let derV = derVFunc(u, v, vDel);
+            let derU = derUFunc(u, v, DeltaU);
+            let derV = derVFunc(u, v, DeltaV);
 
             let result = m4.cross(derV, derU);
             normals.push(result[0]);
             normals.push(result[1]);
             normals.push(result[2]);
 
-            derU = derUFunc(u + 1, v, uDel);
-            derV = derVFunc(u + 1, v, vDel);
+            derU = derUFunc(unext, v, uDel);
+            derV = derVFunc(unext, v, vDel);
 
             result = m4.cross(derV, derU);
             normals.push(result[0]);
             normals.push(result[1]);
             normals.push(result[2]);
 
-            textCoords.push(j / n, v1);
-            textCoords.push( j + 1 / n, v1);
+            textCoords.push(u / uend*n, v / vend);
+            textCoords.push(unext / uend*n, v / vend);
         }
     }
     return [vertices, normals, textCoords];
@@ -373,7 +375,7 @@ function init() {
     LoadTexture();
 }
 
-window.addEventListener("keydown", function (event) {  
+window.addEventListener("keypress", function (event) {  
   switch (event.key) {
     case "ArrowLeft":
       ProcessArrowLeftDown();
@@ -429,22 +431,19 @@ function ProcessArrowRightDown() {
 function LoadTexture() {
     var texture = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, texture);
-
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
  
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE,
               new Uint8Array([0, 0, 255, 255]));
  
     var image = new Image();
     image.crossOrigin = "anonymous"
-    image.src = "https://upload.wikimedia.org/wikipedia/commons/9/92/RGB_24bits_palette_R0.png";
+    image.src = "https://files.cults3d.com/uploaders/13286518/illustration-file/78ac4637-9420-4c13-90ca-1f73381973ac/hummer.jpg";
     image.addEventListener('load', function() {
         gl.bindTexture(gl.TEXTURE_2D, texture);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA,gl.UNSIGNED_BYTE, image);
-
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+        gl.generateMipmap(gl.TEXTURE_2D);
         console.log("Texture is loaded!");
 
         draw();
